@@ -1,6 +1,6 @@
 import streamlit as st
 import openpyxl
-from openpyxl.styles import Font, PatternFill
+from openpyxl.styles import Font, PatternFill, Alignment
 from copy import copy as copy_obj
 import io
 import warnings
@@ -33,7 +33,8 @@ st.markdown("""
 <div class="step-card"><b>Step 3</b> &nbsp;Swap columns A & B</div>
 <div class="step-card"><b>Step 4</b> &nbsp;Columns A & B → no fill, black font</div>
 <div class="step-card"><b>Step 5</b> &nbsp;Row 1 → bold black | Column B rows 2+ → unbold black</div>
-<div class="step-card"><b>Step 6</b> &nbsp;Auto-size all columns</div>
+<div class="step-card"><b>Step 6</b> &nbsp;Column B → left align | Columns after Threshold → center align</div>
+<div class="step-card"><b>Step 7</b> &nbsp;Auto-size all columns</div>
 """, unsafe_allow_html=True)
 
 st.markdown("---")
@@ -152,14 +153,22 @@ if uploaded_file:
                     c2.border = copy_obj(col1_buf[r-1]["border"])
                     c2.number_format = col1_buf[r-1]["number_format"]
 
-                # Step 6: Apply all font/fill rules
+                # Step 6: Find "Threshold" column index in row 1
+                threshold_col = None
+                for c in range(1, new_ws.max_column + 1):
+                    val = new_ws.cell(row=1, column=c).value
+                    if val and str(val).strip().lower() == "threshold":
+                        threshold_col = c
+                        break
+
+                # Step 7: Apply font/fill/alignment rules
                 no_fill = PatternFill(fill_type=None)
                 for r in range(1, new_ws.max_row + 1):
                     for c in range(1, new_ws.max_column + 1):
                         cell = new_ws.cell(row=r, column=c)
 
                         if r == 1:
-                            # Row 1: all headers → bold, black, no fill for cols A & B
+                            # Row 1: bold black for all headers
                             cell.font = Font(
                                 name=cell.font.name or "Calibri",
                                 size=cell.font.size or 11,
@@ -171,7 +180,7 @@ if uploaded_file:
                                 cell.fill = no_fill
 
                         elif c in (1, 2):
-                            # Cols A & B, rows 2+: no fill, black, NOT bold
+                            # Cols A & B rows 2+: no fill, black, unbold
                             cell.fill = no_fill
                             cell.font = Font(
                                 name=cell.font.name or "Calibri",
@@ -181,7 +190,23 @@ if uploaded_file:
                                 color="FF000000",
                             )
 
-                # Step 7: Auto-size all column widths
+                        # Column B → left align (all rows)
+                        if c == 2:
+                            cell.alignment = Alignment(
+                                horizontal="left",
+                                vertical=cell.alignment.vertical,
+                                wrap_text=cell.alignment.wrap_text,
+                            )
+
+                        # Columns after Threshold → center align (all rows)
+                        if threshold_col and c > threshold_col:
+                            cell.alignment = Alignment(
+                                horizontal="center",
+                                vertical=cell.alignment.vertical,
+                                wrap_text=cell.alignment.wrap_text,
+                            )
+
+                # Step 8: Auto-size all column widths
                 for col in new_ws.columns:
                     max_length = 0
                     col_letter = col[0].column_letter
@@ -197,7 +222,7 @@ if uploaded_file:
                 wb.save(output)
                 output.seek(0)
 
-                st.markdown('<div class="success-box">✅ Done! Headers bold black, column B values unbold.</div>', unsafe_allow_html=True)
+                st.markdown('<div class="success-box">✅ Done! Column B left-aligned, data columns center-aligned.</div>', unsafe_allow_html=True)
                 st.markdown("<br>", unsafe_allow_html=True)
 
                 original_name = uploaded_file.name.replace(".xlsx", "")
