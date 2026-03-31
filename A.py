@@ -4,11 +4,7 @@ from openpyxl.styles import Font, PatternFill
 from copy import copy as copy_obj
 import io
 
-st.set_page_config(
-    page_title="Excel Transpose Tool",
-    page_icon="🔄",
-    layout="centered"
-)
+st.set_page_config(page_title="Excel Transpose Tool", page_icon="🔄", layout="centered")
 
 st.markdown("""
     <style>
@@ -22,7 +18,7 @@ st.markdown("""
         .success-box { background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 1rem 1.2rem; color: #166534; font-size: 0.9rem; }
         .stDownloadButton > button { background-color: #6366f1 !important; color: white !important; border: none !important; padding: 0.6rem 1.4rem !important; border-radius: 6px !important; font-family: 'Space Mono', monospace !important; font-size: 0.85rem !important; width: 100%; }
         .stDownloadButton > button:hover { background-color: #4f46e5 !important; }
-        footer {visibility: hidden;}
+        footer { visibility: hidden; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -30,10 +26,11 @@ st.markdown("<h1>🔄 Excel Transpose Tool</h1>", unsafe_allow_html=True)
 st.markdown('<p class="subtitle">Upload your Excel file to transpose, reorder, and reformat it automatically.</p>', unsafe_allow_html=True)
 
 st.markdown("""
-<div class="step-card"><b>Step 1</b> &nbsp;Transpose — rows become columns, columns become rows</div>
-<div class="step-card"><b>Step 2</b> &nbsp;Swap columns 1 & 2 (with their styles)</div>
-<div class="step-card"><b>Step 3</b> &nbsp;Remove background fill from columns 1 & 2</div>
-<div class="step-card"><b>Step 4</b> &nbsp;Bold all cells in row 1 (header row)</div>
+<div class="step-card"><b>Step 1</b> &nbsp;Unmerge all cells & fill missing values</div>
+<div class="step-card"><b>Step 2</b> &nbsp;Transpose — rows become columns, columns become rows</div>
+<div class="step-card"><b>Step 3</b> &nbsp;Swap columns 1 & 2 (with their styles)</div>
+<div class="step-card"><b>Step 4</b> &nbsp;Remove background fill from columns 1 & 2</div>
+<div class="step-card"><b>Step 5</b> &nbsp;Bold all cells in row 1 (header row)</div>
 """, unsafe_allow_html=True)
 
 st.markdown("---")
@@ -58,10 +55,38 @@ if uploaded_file:
                 wb = openpyxl.load_workbook(io.BytesIO(uploaded_file.read()))
                 ws = wb[selected_sheet]
 
+                # ✅ FIX 1: Unmerge all cells and fill each cell with the merged value + style
+                merged_ranges = list(ws.merged_cells.ranges)
+                for merge in merged_ranges:
+                    min_row, min_col = merge.min_row, merge.min_col
+                    max_row, max_col = merge.max_row, merge.max_col
+
+                    # Grab top-left cell value and style before unmerging
+                    top_left = ws.cell(row=min_row, column=min_col)
+                    val = top_left.value
+                    font = copy_obj(top_left.font)
+                    fill = copy_obj(top_left.fill)
+                    alignment = copy_obj(top_left.alignment)
+                    border = copy_obj(top_left.border)
+                    number_format = top_left.number_format
+
+                    ws.unmerge_cells(str(merge))
+
+                    # Fill all cells in the merged range with the value + style
+                    for r in range(min_row, max_row + 1):
+                        for c in range(min_col, max_col + 1):
+                            cell = ws.cell(row=r, column=c)
+                            cell.value = val
+                            cell.font = copy_obj(font)
+                            cell.fill = copy_obj(fill)
+                            cell.alignment = copy_obj(alignment)
+                            cell.border = copy_obj(border)
+                            cell.number_format = number_format
+
                 max_row = ws.max_row
                 max_col = ws.max_column
 
-                # Step 1: Read all data + styles
+                # Step 2: Read all data + styles
                 data, styles = [], []
                 for r in range(1, max_row + 1):
                     row_vals, row_stls = [], []
@@ -78,11 +103,11 @@ if uploaded_file:
                     data.append(row_vals)
                     styles.append(row_stls)
 
-                # Step 2: Transpose
+                # Step 3: Transpose
                 transposed_data = list(map(list, zip(*data)))
                 transposed_styles = list(map(list, zip(*styles)))
 
-                # Step 3: Write to new sheet
+                # Step 4: Write to new sheet
                 if "Transposed" in wb.sheetnames:
                     del wb["Transposed"]
                 new_ws = wb.create_sheet("Transposed")
@@ -96,15 +121,48 @@ if uploaded_file:
                         cell.border = copy_obj(stl["border"])
                         cell.number_format = stl["number_format"]
 
-                # Step 4: Swap columns 1 & 2
-                for row in new_ws.iter_rows(min_row=1, max_row=new_ws.max_row):
-                    c1 = new_ws.cell(row=row[0].row, column=1)
-                    c2 = new_ws.cell(row=row[0].row, column=2)
-                    c1.value, c2.value = c2.value, c1.value
-                    c1f, c1fi, c1a, c1b, c1n = copy_obj(c1.font), copy_obj(c1.fill), copy_obj(c1.alignment), copy_obj(c1.border), c1.number_format
-                    c2f, c2fi, c2a, c2b, c2n = copy_obj(c2.font), copy_obj(c2.fill), copy_obj(c2.alignment), copy_obj(c2.border), c2.number_format
-                    c1.font, c1.fill, c1.alignment, c1.border, c1.number_format = c2f, c2fi, c2a, c2b, c2n
-                    c2.font, c2.fill, c2.alignment, c2.border, c2.number_format = c1f, c1fi, c1a, c1b, c1n
+                # ✅ FIX 2: Swap columns 1 & 2 properly using a temp buffer
+                col1_data = []
+                col2_data = []
+                for r in range(1, new_ws.max_row + 1):
+                    c1 = new_ws.cell(row=r, column=1)
+                    c2 = new_ws.cell(row=r, column=2)
+                    col1_data.append({
+                        "value": c1.value,
+                        "font": copy_obj(c1.font),
+                        "fill": copy_obj(c1.fill),
+                        "alignment": copy_obj(c1.alignment),
+                        "border": copy_obj(c1.border),
+                        "number_format": c1.number_format,
+                    })
+                    col2_data.append({
+                        "value": c2.value,
+                        "font": copy_obj(c2.font),
+                        "fill": copy_obj(c2.fill),
+                        "alignment": copy_obj(c2.alignment),
+                        "border": copy_obj(c2.border),
+                        "number_format": c2.number_format,
+                    })
+
+                for r in range(1, new_ws.max_row + 1):
+                    c1 = new_ws.cell(row=r, column=1)
+                    c2 = new_ws.cell(row=r, column=2)
+
+                    # Write col2 data into col1
+                    c1.value = col2_data[r-1]["value"]
+                    c1.font = copy_obj(col2_data[r-1]["font"])
+                    c1.fill = copy_obj(col2_data[r-1]["fill"])
+                    c1.alignment = copy_obj(col2_data[r-1]["alignment"])
+                    c1.border = copy_obj(col2_data[r-1]["border"])
+                    c1.number_format = col2_data[r-1]["number_format"]
+
+                    # Write col1 data into col2
+                    c2.value = col1_data[r-1]["value"]
+                    c2.font = copy_obj(col1_data[r-1]["font"])
+                    c2.fill = copy_obj(col1_data[r-1]["fill"])
+                    c2.alignment = copy_obj(col1_data[r-1]["alignment"])
+                    c2.border = copy_obj(col1_data[r-1]["border"])
+                    c2.number_format = col1_data[r-1]["number_format"]
 
                 # Step 5: Remove fill from cols 1 & 2, bold row 1
                 no_fill = PatternFill(fill_type=None)
@@ -121,12 +179,11 @@ if uploaded_file:
                                 italic=cell.font.italic,
                             )
 
-                # Save to buffer
                 output = io.BytesIO()
                 wb.save(output)
                 output.seek(0)
 
-                st.markdown('<div class="success-box">✅ Transformation complete! Your file is ready to download.</div>', unsafe_allow_html=True)
+                st.markdown('<div class="success-box">✅ Done! Colors, values and columns all preserved correctly.</div>', unsafe_allow_html=True)
                 st.markdown("<br>", unsafe_allow_html=True)
 
                 original_name = uploaded_file.name.replace(".xlsx", "")
