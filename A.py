@@ -1,6 +1,6 @@
 import streamlit as st
 import openpyxl
-from openpyxl.styles import Font, PatternFill, GradientFill
+from openpyxl.styles import Font, PatternFill
 from copy import copy as copy_obj
 import io
 import warnings
@@ -32,7 +32,8 @@ st.markdown("""
 <div class="step-card"><b>Step 2</b> &nbsp;Transpose — rows become columns, columns become rows</div>
 <div class="step-card"><b>Step 3</b> &nbsp;Swap columns A & B</div>
 <div class="step-card"><b>Step 4</b> &nbsp;Columns A & B → no fill, black font</div>
-<div class="step-card"><b>Step 5</b> &nbsp;Auto-size all columns</div>
+<div class="step-card"><b>Step 5</b> &nbsp;Row 1 → bold black | Column B rows 2+ → unbold black</div>
+<div class="step-card"><b>Step 6</b> &nbsp;Auto-size all columns</div>
 """, unsafe_allow_html=True)
 
 st.markdown("---")
@@ -138,14 +139,12 @@ if uploaded_file:
                 for r in range(1, new_ws.max_row + 1):
                     c1 = new_ws.cell(row=r, column=1)
                     c2 = new_ws.cell(row=r, column=2)
-                    # col1 gets col2's data
                     c1.value = col2_buf[r-1]["value"]
                     c1.font = copy_obj(col2_buf[r-1]["font"])
                     c1.fill = copy_obj(col2_buf[r-1]["fill"])
                     c1.alignment = copy_obj(col2_buf[r-1]["alignment"])
                     c1.border = copy_obj(col2_buf[r-1]["border"])
                     c1.number_format = col2_buf[r-1]["number_format"]
-                    # col2 gets col1's data
                     c2.value = col1_buf[r-1]["value"]
                     c2.font = copy_obj(col1_buf[r-1]["font"])
                     c2.fill = copy_obj(col1_buf[r-1]["fill"])
@@ -153,20 +152,34 @@ if uploaded_file:
                     c2.border = copy_obj(col1_buf[r-1]["border"])
                     c2.number_format = col1_buf[r-1]["number_format"]
 
-                # Step 6: Columns A & B → no fill, black font
+                # Step 6: Apply all font/fill rules
                 no_fill = PatternFill(fill_type=None)
-                black_font_base = {"name": "Calibri", "size": 11, "bold": False, "italic": False}
                 for r in range(1, new_ws.max_row + 1):
-                    for col_idx in (1, 2):
-                        cell = new_ws.cell(row=r, column=col_idx)
-                        cell.fill = no_fill
-                        cell.font = Font(
-                            name=cell.font.name or black_font_base["name"],
-                            size=cell.font.size or black_font_base["size"],
-                            bold=cell.font.bold,
-                            italic=cell.font.italic,
-                            color="FF000000",  # solid black
-                        )
+                    for c in range(1, new_ws.max_column + 1):
+                        cell = new_ws.cell(row=r, column=c)
+
+                        if r == 1:
+                            # Row 1: all headers → bold, black, no fill for cols A & B
+                            cell.font = Font(
+                                name=cell.font.name or "Calibri",
+                                size=cell.font.size or 11,
+                                bold=True,
+                                italic=cell.font.italic,
+                                color="FF000000",
+                            )
+                            if c in (1, 2):
+                                cell.fill = no_fill
+
+                        elif c in (1, 2):
+                            # Cols A & B, rows 2+: no fill, black, NOT bold
+                            cell.fill = no_fill
+                            cell.font = Font(
+                                name=cell.font.name or "Calibri",
+                                size=cell.font.size or 11,
+                                bold=False,
+                                italic=cell.font.italic,
+                                color="FF000000",
+                            )
 
                 # Step 7: Auto-size all column widths
                 for col in new_ws.columns:
@@ -184,7 +197,7 @@ if uploaded_file:
                 wb.save(output)
                 output.seek(0)
 
-                st.markdown('<div class="success-box">✅ Done! Columns swapped, no fill, black font on A & B.</div>', unsafe_allow_html=True)
+                st.markdown('<div class="success-box">✅ Done! Headers bold black, column B values unbold.</div>', unsafe_allow_html=True)
                 st.markdown("<br>", unsafe_allow_html=True)
 
                 original_name = uploaded_file.name.replace(".xlsx", "")
