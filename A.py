@@ -30,7 +30,7 @@ st.markdown("""
 <div class="step-card"><b>Step 2</b> &nbsp;Transpose — rows become columns, columns become rows</div>
 <div class="step-card"><b>Step 3</b> &nbsp;Swap columns 1 & 2 (with their styles)</div>
 <div class="step-card"><b>Step 4</b> &nbsp;Remove background fill from columns 1 & 2</div>
-<div class="step-card"><b>Step 5</b> &nbsp;Bold all cells in row 1 (header row)</div>
+<div class="step-card"><b>Step 5</b> &nbsp;Bold all cells in row 1 & auto-size all columns</div>
 """, unsafe_allow_html=True)
 
 st.markdown("---")
@@ -55,13 +55,12 @@ if uploaded_file:
                 wb = openpyxl.load_workbook(io.BytesIO(uploaded_file.read()))
                 ws = wb[selected_sheet]
 
-                # ✅ FIX 1: Unmerge all cells and fill each cell with the merged value + style
+                # Step 1: Unmerge all cells and fill every cell with the merged value + style
                 merged_ranges = list(ws.merged_cells.ranges)
                 for merge in merged_ranges:
                     min_row, min_col = merge.min_row, merge.min_col
                     max_row, max_col = merge.max_row, merge.max_col
 
-                    # Grab top-left cell value and style before unmerging
                     top_left = ws.cell(row=min_row, column=min_col)
                     val = top_left.value
                     font = copy_obj(top_left.font)
@@ -72,7 +71,6 @@ if uploaded_file:
 
                     ws.unmerge_cells(str(merge))
 
-                    # Fill all cells in the merged range with the value + style
                     for r in range(min_row, max_row + 1):
                         for c in range(min_col, max_col + 1):
                             cell = ws.cell(row=r, column=c)
@@ -121,42 +119,29 @@ if uploaded_file:
                         cell.border = copy_obj(stl["border"])
                         cell.number_format = stl["number_format"]
 
-                # ✅ FIX 2: Swap columns 1 & 2 properly using a temp buffer
-                col1_data = []
-                col2_data = []
+                # Step 5: Swap columns 1 & 2 using temp buffer
+                col1_data, col2_data = [], []
                 for r in range(1, new_ws.max_row + 1):
                     c1 = new_ws.cell(row=r, column=1)
                     c2 = new_ws.cell(row=r, column=2)
                     col1_data.append({
-                        "value": c1.value,
-                        "font": copy_obj(c1.font),
-                        "fill": copy_obj(c1.fill),
-                        "alignment": copy_obj(c1.alignment),
-                        "border": copy_obj(c1.border),
-                        "number_format": c1.number_format,
+                        "value": c1.value, "font": copy_obj(c1.font), "fill": copy_obj(c1.fill),
+                        "alignment": copy_obj(c1.alignment), "border": copy_obj(c1.border), "number_format": c1.number_format,
                     })
                     col2_data.append({
-                        "value": c2.value,
-                        "font": copy_obj(c2.font),
-                        "fill": copy_obj(c2.fill),
-                        "alignment": copy_obj(c2.alignment),
-                        "border": copy_obj(c2.border),
-                        "number_format": c2.number_format,
+                        "value": c2.value, "font": copy_obj(c2.font), "fill": copy_obj(c2.fill),
+                        "alignment": copy_obj(c2.alignment), "border": copy_obj(c2.border), "number_format": c2.number_format,
                     })
 
                 for r in range(1, new_ws.max_row + 1):
                     c1 = new_ws.cell(row=r, column=1)
                     c2 = new_ws.cell(row=r, column=2)
-
-                    # Write col2 data into col1
                     c1.value = col2_data[r-1]["value"]
                     c1.font = copy_obj(col2_data[r-1]["font"])
                     c1.fill = copy_obj(col2_data[r-1]["fill"])
                     c1.alignment = copy_obj(col2_data[r-1]["alignment"])
                     c1.border = copy_obj(col2_data[r-1]["border"])
                     c1.number_format = col2_data[r-1]["number_format"]
-
-                    # Write col1 data into col2
                     c2.value = col1_data[r-1]["value"]
                     c2.font = copy_obj(col1_data[r-1]["font"])
                     c2.fill = copy_obj(col1_data[r-1]["fill"])
@@ -164,7 +149,7 @@ if uploaded_file:
                     c2.border = copy_obj(col1_data[r-1]["border"])
                     c2.number_format = col1_data[r-1]["number_format"]
 
-                # Step 5: Remove fill from cols 1 & 2, bold row 1
+                # Step 6: Remove fill from cols 1 & 2, bold row 1
                 no_fill = PatternFill(fill_type=None)
                 for row in new_ws.iter_rows(min_row=1, max_row=new_ws.max_row):
                     for cell in row:
@@ -178,6 +163,18 @@ if uploaded_file:
                                 color=cell.font.color,
                                 italic=cell.font.italic,
                             )
+
+                # Step 7: Auto-size all column widths
+                for col in new_ws.columns:
+                    max_length = 0
+                    col_letter = col[0].column_letter
+                    for cell in col:
+                        try:
+                            if cell.value:
+                                max_length = max(max_length, len(str(cell.value)))
+                        except:
+                            pass
+                    new_ws.column_dimensions[col_letter].width = min(max_length + 4, 50)
 
                 output = io.BytesIO()
                 wb.save(output)
