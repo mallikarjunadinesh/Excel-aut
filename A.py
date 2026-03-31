@@ -1,9 +1,10 @@
-import streamlit as st
+ import streamlit as st
 import openpyxl
 from openpyxl.styles import Font, PatternFill
 from copy import copy as copy_obj
-import pandas as pd
 import io
+import warnings
+warnings.filterwarnings("ignore")
 
 st.set_page_config(page_title="Excel Transpose Tool", page_icon="🔄", layout="centered")
 
@@ -29,7 +30,7 @@ st.markdown('<p class="subtitle">Upload your Excel file to transpose, reorder, a
 st.markdown("""
 <div class="step-card"><b>Step 1</b> &nbsp;Unmerge all cells & fill missing values</div>
 <div class="step-card"><b>Step 2</b> &nbsp;Transpose — rows become columns, columns become rows</div>
-<div class="step-card"><b>Step 3</b> &nbsp;Swap columns 1 & 2 → ID comes before MEASUREMENTS</div>
+<div class="step-card"><b>Step 3</b> &nbsp;ID column first, then MEASUREMENTS column</div>
 <div class="step-card"><b>Step 4</b> &nbsp;Remove background fill from columns 1 & 2</div>
 <div class="step-card"><b>Step 5</b> &nbsp;Bold row 1 & auto-size all columns</div>
 """, unsafe_allow_html=True)
@@ -57,7 +58,7 @@ if uploaded_file:
                 wb = openpyxl.load_workbook(io.BytesIO(file_bytes))
                 ws = wb[selected_sheet]
 
-                # Step 1: Unmerge all cells and fill every cell with merged value + style
+                # Step 1: Unmerge all cells and fill every cell in merged range
                 merged_ranges = list(ws.merged_cells.ranges)
                 for merge in merged_ranges:
                     min_row, min_col = merge.min_row, merge.min_col
@@ -83,8 +84,9 @@ if uploaded_file:
                 max_row = ws.max_row
                 max_col = ws.max_column
 
-                # Step 2: Read all data + styles
-                data, styles = [], []
+                # Step 2: Read all data + styles into a 2D grid [row][col]
+                data = []
+                styles = []
                 for r in range(1, max_row + 1):
                     row_vals, row_stls = [], []
                     for c in range(1, max_col + 1):
@@ -100,19 +102,16 @@ if uploaded_file:
                     data.append(row_vals)
                     styles.append(row_stls)
 
-                # Step 3: Transpose data and styles
+                # Step 3: Transpose — data[r][c] becomes transposed[c][r]
                 transposed_data = list(map(list, zip(*data)))
                 transposed_styles = list(map(list, zip(*styles)))
 
-                # Step 4: Use pandas to reorder columns — put ID row (row 2 = index 1) first
-                # After transpose, original rows become columns
-                # Row 1 (MEASUREMENTS FOR 2026-FEB) → col 0
-                # Row 2 (ID) → col 1
-                # We want ID first, so swap col 0 and col 1
-                num_cols = len(transposed_data)
-                if num_cols >= 2:
-                    transposed_data[0], transposed_data[1] = transposed_data[1], transposed_data[0]
-                    transposed_styles[0], transposed_styles[1] = transposed_styles[1], transposed_styles[0]
+                # Step 4: Reorder — bring ID row (originally row 2, index 1) to position 0
+                # After transpose: index 0 = MEASUREMENTS row, index 1 = ID row
+                # We want: index 0 = ID, index 1 = MEASUREMENTS
+                order = [1, 0] + list(range(2, len(transposed_data)))
+                transposed_data = [transposed_data[i] for i in order]
+                transposed_styles = [transposed_styles[i] for i in order]
 
                 # Step 5: Write to new Transposed sheet
                 if "Transposed" in wb.sheetnames:
@@ -128,12 +127,14 @@ if uploaded_file:
                         cell.border = copy_obj(stl["border"])
                         cell.number_format = stl["number_format"]
 
-                # Step 6: Remove fill from cols 1 & 2, bold row 1
+                # Step 6: Remove fill from rows 1 & 2, bold row 1
                 no_fill = PatternFill(fill_type=None)
                 for row in new_ws.iter_rows(min_row=1, max_row=new_ws.max_row):
                     for cell in row:
-                        if cell.column in (1, 2):
+                        # Remove fill from first 2 ROWS (they were originally cols 1 & 2)
+                        if cell.row in (1, 2):
                             cell.fill = no_fill
+                        # Bold row 1
                         if cell.row == 1:
                             cell.font = Font(
                                 bold=True,
@@ -159,7 +160,7 @@ if uploaded_file:
                 wb.save(output)
                 output.seek(0)
 
-                st.markdown('<div class="success-box">✅ Done! ID column is now first, colors and values preserved.</div>', unsafe_allow_html=True)
+                st.markdown('<div class="success-box">✅ Done! ID is now column 1, MEASUREMENTS is column 2.</div>', unsafe_allow_html=True)
                 st.markdown("<br>", unsafe_allow_html=True)
 
                 original_name = uploaded_file.name.replace(".xlsx", "")
